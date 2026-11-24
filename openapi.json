@@ -7,6 +7,42 @@
   },
   "servers": [{ "url": "/" }],
   "paths": {
+    "/report": {
+      "post": {
+        "summary": "Informe del clima en JSON estructurado",
+        "description": "Ejemplo de structured output: consulta el clima real y el modelo devuelve un JSON que cumple el esquema WeatherReport (validado con zod). Sin memoria ni herramientas.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["city"],
+                "properties": { "city": { "type": "string", "minLength": 1, "maxLength": 100 } }
+              },
+              "example": { "city": "Bogotá" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Informe estructurado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["report", "usage"],
+                  "properties": { "report": { "$ref": "#/components/schemas/WeatherReport" }, "usage": { "$ref": "#/components/schemas/Usage" } }
+                }
+              }
+            }
+          },
+          "400": { "description": "Falta city o el JSON es inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Ciudad no encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Fallo al consultar el modelo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
     "/chat": {
       "post": {
         "summary": "Enviar un mensaje al agente",
@@ -42,6 +78,20 @@
   },
   "components": {
     "schemas": {
+      "WeatherReport": {
+        "type": "object",
+        "description": "Salida estructurada: el modelo está obligado a devolver exactamente esta forma (response_format: json_schema).",
+        "required": ["city", "country", "temperatureC", "condition", "feeling", "umbrellaNeeded", "recommendation"],
+        "properties": {
+          "city": { "type": "string", "example": "Bogotá" },
+          "country": { "type": "string", "example": "Colombia" },
+          "temperatureC": { "type": "number", "example": 17.3 },
+          "condition": { "type": "string", "example": "Llovizna ligera" },
+          "feeling": { "type": "string", "enum": ["frío", "fresco", "templado", "caluroso"] },
+          "umbrellaNeeded": { "type": "boolean", "example": true },
+          "recommendation": { "type": "string", "example": "Lleva paraguas y una chaqueta ligera." }
+        }
+      },
       "ChatRequest": {
         "type": "object",
         "required": ["message"],

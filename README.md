@@ -47,9 +47,32 @@ cp .env.template .env               # PowerShell: Copy-Item .env.template .env
 | `LLM_PROVIDER`   | `nvidia` o `groq` (por defecto `groq`)                  |
 | `NVIDIA_API_KEY` | Obligatoria si `LLM_PROVIDER=nvidia`                    |
 | `GROQ_API_KEY`   | Obligatoria si `LLM_PROVIDER=groq`                      |
+| `NVIDIA_REASONING_EFFORT` | Razonamiento de Nemotron: `none` (por defecto), `low` o `high` |
 | `NVIDIA_MODEL`, `GROQ_MODEL`, `PORT` | Opcionales. Los valores por defecto están en [`.env.template`](.env.template) |
 
 `.env` está en `.gitignore`, así que tus claves no se suben al repo.
+
+## Configurar el modelo
+
+Todos los parámetros del modelo están en [`src/model.ts`](src/model.ts), en la función `createChatModel()`. Cambia el valor y reinicia el servidor.
+
+| Parámetro          | Dónde             | Qué hace |
+|--------------------|-------------------|----------|
+| `model`            | `.env` (`NVIDIA_MODEL` / `GROQ_MODEL`) | Qué modelo se usa |
+| `temperature`      | `model.ts`        | 0 = respuestas siempre iguales; más alto = más variadas. NVIDIA recomienda 1 y Groq está en 0 |
+| `maxTokens`        | `model.ts`        | Máximo de tokens que el modelo escribe por llamada (2048) |
+| `reasoning_effort` | `.env` (`NVIDIA_REASONING_EFFORT`) | Si Nemotron "piensa" antes de responder. Va en `modelKwargs` |
+
+`modelKwargs` es la forma de mandar a la API parámetros para los que LangChain no tiene opción propia: se envían tal cual. Así se pasa `reasoning_effort` a NVIDIA.
+
+**¿Razonamiento sí o no?** Para tareas sencillas como esta, `none` da respuestas igual de buenas y es mucho más barato. Medido con el mismo prompt:
+
+| Endpoint  | `none`  | `high`    |
+|-----------|---------|-----------|
+| `/report` | 87 tokens de salida | 1187 tokens de salida |
+| `/chat`   | 74 tokens de salida | 341 tokens de salida  |
+
+Usa `low` o `high` para problemas que requieren varios pasos de lógica: matemáticas, planificación o código.
 
 ```bash
 npm run dev     # servidor con recarga automática en http://localhost:3000
@@ -106,12 +129,41 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3000/chat -ContentType 'app
   -Body (@{ message = '¿Y comparado con Cartagena?'; threadId = $r.threadId } | ConvertTo-Json)
 ```
 
+### `POST /report`: salida estructurada (JSON)
+
+Ejemplo de **structured output**: en lugar de texto libre, el modelo está obligado a devolver un JSON con una forma fija. La forma se define con `zod` en [`src/report.ts`](src/report.ts), y `withStructuredOutput(..., { method: 'jsonSchema' })` la envía a la API como `response_format: { type: "json_schema" }`. Además valida la respuesta: si el modelo devolviera algo que no cumple el esquema, la petición falla en vez de llegar mal al cliente.
+
+```bash
+curl -X POST http://localhost:3000/report -H "Content-Type: application/json" -d '{"city":"Bogotá"}'
+```
+
+```json
+{
+  "report": {
+    "city": "Bogotá",
+    "country": "Colombia",
+    "temperatureC": 17.3,
+    "condition": "Llovizna ligera",
+    "feeling": "fresco",
+    "umbrellaNeeded": true,
+    "recommendation": "Lleva paraguas y una chaqueta ligera."
+  },
+  "usage": { "inputTokens": 159, "outputTokens": 892 }
+}
+```
+
+Errores: `400` (falta `city`), `404` (ciudad no encontrada), `502` (fallo del modelo).
+
+> En PowerShell 5.1, usa `-ContentType 'application/json; charset=utf-8'` para que los acentos (á, ñ) lleguen bien.
+
 ## Estructura
 
 ```
 src/
-  server.ts       Servidor HTTP (node:http): validación de entrada, /chat, /docs, /openapi.json
-  agent.ts        Grafo LangGraph: selección de modelo, nodo llm + ToolNode, memoria (MemorySaver) y conteo de tokens
+  server.ts       Servidor HTTP (node:http): validación de entrada, /chat, /report, /docs, /openapi.json
+  model.ts        Selección del modelo (Groq o NVIDIA) y conteo de tokens
+  agent.ts        Grafo LangGraph: nodo llm + ToolNode y memoria (MemorySaver)
+  report.ts       Salida estructurada: esquema zod + withStructuredOutput
   weather.ts      Herramienta get_weather (tool() + esquema zod) y cliente de Open-Meteo
   agent.test.ts   Tests con fetch simulado (no llaman a Groq ni a Open-Meteo)
 openapi.json      Contrato de la API (lo sirve /openapi.json y lo usa Swagger UI)
