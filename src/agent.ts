@@ -1,0 +1,35 @@
+import { ChatGroq } from '@langchain/groq';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { StateGraph, StateSchema, MessagesValue, START, MemorySaver } from '@langchain/langgraph';
+import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
+import { weatherTool } from './weather.ts';
+
+const SYSTEM_PROMPT = 'Eres un asistente útil y conciso. Usa la herramienta get_weather cuando pregunten por el clima.';
+const tools = [weatherTool];
+
+// ChatGroq reads GROQ_API_KEY from the environment.
+const model = new ChatGroq({ model: process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b', temperature: 0 }).bindTools(tools);
+
+const State = new StateSchema({ messages: MessagesValue });
+
+// llm -> (tool call?) -> tools -> llm ... -> END
+const graph = new StateGraph(State)
+  .addNode('llm', async (state) => ({
+    messages: [await model.invoke([new SystemMessage(SYSTEM_PROMPT), ...state.messages])],
+  }))
+  .addNode('tools', new ToolNode(tools)) // tool errors go back to the model as messages, not exceptions
+  .addEdge(START, 'llm')
+  .addConditionalEdges('llm', toolsCondition, ['tools', '__end__'])
+  .addEdge('tools', 'llm')
+  // shortcut: MemorySaver keeps every thread in RAM, lost on restart and never trimmed; use a persistent checkpointer (e.g. SQLite/Postgres) beyond local dev.
+  .compile({ checkpointer: new MemorySaver() });
+
+// Same threadId = same conversation: the checkpointer restores previous messages before this one is added.
+export async function runAgent(userMessage: string, threadId: string): Promise<string> {
+  const result = await graph.invoke(
+    { messages: [new HumanMessage(userMessage)] },
+    // recursionLimit stops a model that keeps calling tools forever (~5 llm/tool round trips per message).
+    { recursionLimit: 10, configurable: { thread_id: threadId } },
+  );
+  return result.messages.at(-1)?.text ?? '';
+}

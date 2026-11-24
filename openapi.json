@@ -1,0 +1,68 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Groq Weather Agent",
+    "version": "1.0.0",
+    "description": "Agente conversacional (LangGraph + Groq) con una herramienta de clima (Open-Meteo). Mantiene memoria por threadId mientras el servidor está encendido."
+  },
+  "servers": [{ "url": "/" }],
+  "paths": {
+    "/chat": {
+      "post": {
+        "summary": "Enviar un mensaje al agente",
+        "description": "Sin threadId inicia una conversación nueva y devuelve su threadId. Envía ese threadId en los siguientes mensajes para continuarla.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" },
+              "examples": {
+                "nueva": { "summary": "Conversación nueva", "value": { "message": "¿Qué tiempo hace en Bogotá?" } },
+                "continuar": { "summary": "Continuar conversación", "value": { "message": "¿Y comparado con Cartagena?", "threadId": "4939598e-8563-4df3-aa99-514dd9d2d1a1" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta del agente",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } }
+          },
+          "400": {
+            "description": "Body inválido (JSON mal formado, falta message o threadId con formato incorrecto)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "502": {
+            "description": "Fallo al consultar el modelo (Groq)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1, "description": "Mensaje del usuario" },
+          "threadId": { "type": "string", "pattern": "^[\\w-]{1,100}$", "description": "Id de conversación devuelto en una respuesta anterior" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "required": ["reply", "threadId"],
+        "properties": {
+          "reply": { "type": "string", "description": "Respuesta del agente (puede venir en Markdown)" },
+          "threadId": { "type": "string", "description": "Id para continuar la conversación" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  }
+}
