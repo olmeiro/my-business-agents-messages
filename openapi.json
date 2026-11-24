@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Groq Weather Agent",
-    "version": "1.0.0",
-    "description": "Agente conversacional (LangGraph + Groq) con una herramienta de clima (Open-Meteo). Mantiene memoria por threadId mientras el servidor está encendido."
+    "title": "Weather Agent",
+    "version": "1.1.0",
+    "description": "Agente conversacional (LangGraph + Groq o NVIDIA, según LLM_PROVIDER) con una herramienta de clima (Open-Meteo). Mantiene memoria por threadId mientras el servidor está encendido y devuelve los tokens consumidos."
   },
   "servers": [{ "url": "/" }],
   "paths": {
@@ -52,10 +52,20 @@
       },
       "ChatResponse": {
         "type": "object",
-        "required": ["reply", "threadId"],
+        "required": ["reply", "threadId", "usage"],
         "properties": {
           "reply": { "type": "string", "description": "Respuesta del agente (puede venir en Markdown)" },
-          "threadId": { "type": "string", "description": "Id para continuar la conversación" }
+          "threadId": { "type": "string", "description": "Id para continuar la conversación" },
+          "usage": { "$ref": "#/components/schemas/Usage" }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "Tokens consumidos en este turno, sumando todas las llamadas al modelo (si usó la herramienta son 2). La entrada de cada llamada incluye el historial de la conversación.",
+        "required": ["inputTokens", "outputTokens"],
+        "properties": {
+          "inputTokens": { "type": "integer", "example": 898 },
+          "outputTokens": { "type": "integer", "example": 422 }
         }
       },
       "Error": {

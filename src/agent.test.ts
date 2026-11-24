@@ -24,18 +24,20 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: Re
   }
   const body = JSON.parse(String(init?.body));
   groqBodies.push(body);
-  return json({ id: 'x', object: 'chat.completion', model: 'test', choices: [{ index: 0, message: fakeGroqReply(body.messages), finish_reason: 'stop' }] });
+  return json({ id: 'x', object: 'chat.completion', model: 'test', choices: [{ index: 0, message: fakeGroqReply(body.messages), finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
 });
 
+delete process.env.LLM_PROVIDER; // tests mock the Groq path
 process.env.GROQ_API_KEY ??= 'test-key'; // ChatGroq needs a key when the module loads
 const { runAgent } = await import('./agent.ts');
 
 const userContents = () => groqBodies.at(-1).messages.filter((m: any) => m.role === 'user').map((m: any) => m.content);
 
-test('agent calls get_weather and feeds the result back to the model', async () => {
-  const reply = await runAgent('¿Qué tiempo hace en Madrid?', 'weather-thread');
+test('agent calls get_weather, feeds the result back and sums usage of both model calls', async () => {
+  const { reply, usage } = await runAgent('¿Qué tiempo hace en Madrid?', 'weather-thread');
 
   assert.equal(reply, 'En Madrid hace 21 °C.');
+  assert.deepEqual(usage, { inputTokens: 200, outputTokens: 40 });
   const toolMsg = groqBodies.at(-1).messages.at(-1);
   assert.equal(toolMsg.role, 'tool');
   assert.equal(toolMsg.tool_call_id, 'c1');
@@ -44,8 +46,9 @@ test('agent calls get_weather and feeds the result back to the model', async () 
 
 test('same threadId remembers previous messages; another threadId does not', async () => {
   await runAgent('Me llamo Ana', 'thread-a');
-  await runAgent('¿Cómo me llamo?', 'thread-a');
+  const { usage } = await runAgent('¿Cómo me llamo?', 'thread-a');
   assert.deepEqual(userContents(), ['Me llamo Ana', '¿Cómo me llamo?']);
+  assert.deepEqual(usage, { inputTokens: 100, outputTokens: 20 }, 'usage counts only this turn, not earlier ones');
 
   await runAgent('¿Cómo me llamo?', 'thread-b');
   assert.deepEqual(userContents(), ['¿Cómo me llamo?']);

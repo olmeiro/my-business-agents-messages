@@ -1,6 +1,6 @@
-# Groq Weather Agent
+# Weather Agent (LangGraph + Groq / NVIDIA)
 
-API HTTP mínima en **Node.js + TypeScript** que expone un agente conversacional construido con **LangGraph**. El agente usa un modelo de **Groq** y tiene una herramienta para consultar el **clima actual** de cualquier ciudad (vía [Open-Meteo](https://open-meteo.com/), gratis y sin API key). Recuerda la conversación por `threadId`.
+API HTTP mínima en **Node.js + TypeScript** que expone un agente conversacional construido con **LangGraph**. El agente usa un modelo de **Groq** o de **NVIDIA** (Nemotron), según `LLM_PROVIDER`, y tiene una herramienta para consultar el **clima actual** de cualquier ciudad (vía [Open-Meteo](https://open-meteo.com/), gratis y sin API key). Recuerda la conversación por `threadId` y devuelve los tokens de entrada y salida de cada respuesta.
 
 Sirve como referencia de cómo montar un agente con herramientas en LangGraph JS con el mínimo de piezas: sin framework web, sin paso de compilación.
 
@@ -15,37 +15,46 @@ POST /chat ──► server.ts ──► grafo LangGraph (agent.ts)
                              └──────── [tools] ── get_weather ──► Open-Meteo
 ```
 
-1. El nodo `llm` envía el historial a Groq (`ChatGroq`) con la herramienta `get_weather` enlazada.
+1. El nodo `llm` envía el historial al modelo con la herramienta `get_weather` enlazada: `ChatGroq` para Groq, o `ChatOpenAI` apuntando al endpoint compatible con OpenAI de NVIDIA.
 2. Si el modelo pide la herramienta, `toolsCondition` dirige al nodo `tools` (`ToolNode`), que la ejecuta y devuelve el resultado al modelo.
 3. Se repite hasta que el modelo responde con texto. `recursionLimit: 10` corta un bucle infinito de herramientas.
 4. `MemorySaver` guarda los mensajes de cada `thread_id`, así el siguiente mensaje del mismo hilo continúa la conversación.
+5. Los tokens se leen de `usage_metadata` de cada respuesta del modelo en el turno y se suman.
 
 ## Requisitos
 
 - **Node.js ≥ 23.6**: ejecuta TypeScript de forma nativa y lee `.env` con `--env-file`.
-- Una API key de Groq: <https://console.groq.com/keys>
+- Una API key del proveedor que vayas a usar:
+  - Groq: <https://console.groq.com/keys>
+  - NVIDIA: <https://build.nvidia.com/nvidia/nemotron-3.5-super-vl-120b-a12b> (botón *Get API Key*)
 
 ## Puesta en marcha
+
+> **Windows / PowerShell:** si `npm` muestra *"la ejecución de scripts está deshabilitada en este sistema"*, usa `npm.cmd` en lugar de `npm` en todos los comandos (`npm.cmd install`, `npm.cmd run dev`...). Para arreglarlo de forma permanente, ejecuta una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (no necesita permisos de administrador).
 
 ```bash
 npm install
 ```
 
-Crea un archivo `.env` en la raíz:
+Copia la plantilla de variables de entorno y pon tu API key en `.env`:
 
-```env
-GROQ_API_KEY=gsk_...
-# Opcionales:
-# GROQ_MODEL=openai/gpt-oss-20b   # cualquier modelo de Groq con tool calling
-# PORT=3000
+```bash
+cp .env.template .env               # PowerShell: Copy-Item .env.template .env
 ```
+
+| Variable         | Para qué                                               |
+|------------------|--------------------------------------------------------|
+| `LLM_PROVIDER`   | `nvidia` o `groq` (por defecto `groq`)                  |
+| `NVIDIA_API_KEY` | Obligatoria si `LLM_PROVIDER=nvidia`                    |
+| `GROQ_API_KEY`   | Obligatoria si `LLM_PROVIDER=groq`                      |
+| `NVIDIA_MODEL`, `GROQ_MODEL`, `PORT` | Opcionales. Los valores por defecto están en [`.env.template`](.env.template) |
+
+`.env` está en `.gitignore`, así que tus claves no se suben al repo.
 
 ```bash
 npm run dev     # servidor con recarga automática en http://localhost:3000
 npm start       # igual, sin recarga
 ```
-
-> **Windows / PowerShell:** si aparece *"la ejecución de scripts está deshabilitada"*, usa `npm.cmd run dev` o ejecuta una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 ## Documentación (Swagger)
 
@@ -66,10 +75,16 @@ Con el servidor encendido:
 Respuesta `200`:
 
 ```json
-{ "reply": "En Bogotá hace 18 °C...", "threadId": "4939598e-8563-4df3-aa99-514dd9d2d1a1" }
+{
+  "reply": "En Bogotá hace 17.7 °C...",
+  "threadId": "4939598e-8563-4df3-aa99-514dd9d2d1a1",
+  "usage": { "inputTokens": 898, "outputTokens": 422 }
+}
 ```
 
-Errores: `400` (JSON inválido, falta `message`, `threadId` con formato incorrecto) y `502` (fallo al llamar a Groq). Formato: `{ "error": "..." }`.
+`usage` suma los tokens de **este turno**: si el agente usó la herramienta hubo 2 llamadas al modelo. Los tokens de entrada de cada llamada incluyen el historial, así que crecen a medida que avanza la conversación. Con NVIDIA, los de salida incluyen los tokens de razonamiento.
+
+Errores: `400` (JSON inválido, falta `message`, `threadId` con formato incorrecto) y `502` (fallo al llamar al modelo). Formato: `{ "error": "..." }`.
 
 ### Ejemplo: conversación de dos turnos
 
@@ -96,7 +111,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3000/chat -ContentType 'app
 ```
 src/
   server.ts       Servidor HTTP (node:http): validación de entrada, /chat, /docs, /openapi.json
-  agent.ts        Grafo LangGraph: nodo llm + ToolNode + memoria (MemorySaver)
+  agent.ts        Grafo LangGraph: selección de modelo, nodo llm + ToolNode, memoria (MemorySaver) y conteo de tokens
   weather.ts      Herramienta get_weather (tool() + esquema zod) y cliente de Open-Meteo
   agent.test.ts   Tests con fetch simulado (no llaman a Groq ni a Open-Meteo)
 openapi.json      Contrato de la API (lo sirve /openapi.json y lo usa Swagger UI)

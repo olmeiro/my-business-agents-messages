@@ -1,15 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { runAgent } from './agent.ts';
+import { runAgent } from './agent.ts'; // throws at startup if the provider's API key is missing
 
-if (!process.env.GROQ_API_KEY) throw new Error('Falta GROQ_API_KEY en .env');
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_BODY_BYTES = 10_000;
 const OPENAPI_SPEC = readFileSync(new URL('../openapi.json', import.meta.url), 'utf8');
 // shortcut: Swagger UI loads from a CDN (needs internet); install swagger-ui-dist and serve it locally if you need offline docs.
 const SWAGGER_HTML = `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><title>Groq Weather Agent - API</title>
+<html lang="es"><head><meta charset="utf-8"><title>Weather Agent - API</title>
 <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
 <body><div id="swagger"></div>
 <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
@@ -40,7 +39,8 @@ createServer(async (req, res) => {
 
   try {
     // Return threadId so the client can send it back to continue the conversation.
-    send(res, 200, { reply: await runAgent(message, threadId), threadId });
+    const { reply, usage } = await runAgent(message, threadId);
+    send(res, 200, { reply, threadId, usage });
   } catch (err) {
     console.error(err);
     send(res, 502, { error: 'Error al consultar el modelo' });
