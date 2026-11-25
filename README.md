@@ -304,6 +304,46 @@ Este repo es un **prototipo local** de una sola pieza de la arquitectura *My Bus
 
 El diagrama completo de la arquitectura está en [`docs/agent-col.drawio`](docs/agent-col.drawio). Se edita con [draw.io](https://www.drawio.com/) o con su extensión para VS Code.
 
+**Despliegue mínimo:** [`infra/template.yaml`](infra/template.yaml) es un template de AWS SAM que despliega este mismo código en una Lambda, sin cambiarlo, usando [Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter). Los pasos para desplegar están al principio del template. Ojo: es el punto de partida, no la arquitectura de abajo. No tiene SQS, DynamoDB ni webhook de WhatsApp, y la memoria (`MemorySaver`) no sobrevive entre instancias de Lambda.
+
+**Pipeline:** [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) hace lo mismo desde GitHub Actions, en dos jobs:
+
+1. **ci:** typecheck, formato, tests y validación del template.
+2. **deploy:** asume un rol de AWS por OIDC y ejecuta `sam build` + `sam deploy`. Solo corre si `ci` pasó.
+
+Por ahora solo se ejecuta a mano: pestaña *Actions* → *CI/CD* → *Run workflow*. La configuración que necesita está al principio del archivo.
+
+### Ejercicio: dejar el pipeline listo para desplegar
+
+El pipeline ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) es un punto de partida: valida el código y sabe desplegar, pero le faltan piezas para usarlo de verdad. El ejercicio es completarlo, en este orden:
+
+1. **Conectar GitHub con AWS sin access keys (OIDC).**
+   - En IAM, crea el proveedor OIDC de GitHub (`token.actions.githubusercontent.com`) y un rol que confíe **solo en este repo y en la rama `main`**. Eso se configura en la condición `sub` de la política de confianza.
+   - Dale al rol únicamente los permisos que necesita SAM: CloudFormation, Lambda, IAM para el rol de la función, S3 para los artefactos y CloudWatch Logs.
+   - Guarda su ARN como secret `AWS_ROLE_ARN` y la región como variable `AWS_REGION`.
+   - Crea antes el secreto con la API key en Secrets Manager (ver el principio de [`infra/template.yaml`](infra/template.yaml)).
+2. **Validar en cada pull request, desplegar solo desde `main`.**
+   - Añade el disparador `pull_request` para que el job `ci` revise cada cambio.
+   - Pon `if: github.ref == 'refs/heads/main'` en el job `deploy` para que solo despliegue desde `main`.
+   - Cuando todo funcione, descomenta el disparador `push`.
+3. **Pedir aprobación antes de desplegar.** Crea un *environment* `production` en GitHub (*Settings → Environments*) con revisores obligatorios, y añade `environment: production` al job `deploy`. Así nadie despliega sin que otra persona lo apruebe.
+4. **Evitar dos despliegues a la vez.** Añade `concurrency: deploy-production` al job `deploy`. Si se hacen dos pushes seguidos, el segundo espera en vez de pisar al primero.
+5. **Parametrizar por entorno.**
+   - Pasa la configuración desde variables del *environment* con `--parameter-overrides LlmProvider=${{ vars.LLM_PROVIDER }}`.
+   - Usa un `--stack-name` distinto por entorno (por ejemplo `weather-agent-dev` y `weather-agent-prod`).
+6. **Comprobar que el despliegue funciona (smoke test).**
+   - Después de `sam deploy`, lee la URL desde los *outputs* del stack: `aws cloudformation describe-stacks --stack-name ... --query "Stacks[0].Outputs"`.
+   - Haz una petición firmada a `GET /openapi.json`, por ejemplo con [`awscurl`](https://github.com/okigan/awscurl) y `--service lambda`.
+   - Si no responde `200`, el pipeline debe fallar.
+7. **Avisar del resultado.** Es el paso 5 del diagrama (*Éxito / Rollback*): añade un paso con `if: failure()` que notifique al equipo, por Slack o por email. CloudFormation ya deshace los cambios por su cuenta si el despliegue falla.
+8. **Endurecer la seguridad.** Fija las acciones a un commit concreto (`uses: actions/checkout@<sha>` en vez de `@v4`) y activa Dependabot para que proponga las actualizaciones.
+
+**Pistas:**
+
+- Prueba primero a desplegar a mano una vez (`sam build -t infra/template.yaml` y luego `sam deploy --guided`). Si eso funciona, cualquier fallo del pipeline será de permisos o de configuración, no del template.
+- Cuando despliegues, verás que la memoria a veces falla: cada instancia de la Lambda tiene su propia RAM. Ese es el siguiente reto, pasarla a DynamoDB (ver la tabla de abajo).
+- Para no pagar por recursos que no usas, borra el stack de prueba al terminar: `sam delete --stack-name <nombre>`.
+
 ### Qué pieza corresponde a qué
 
 | En la arquitectura | En este repo | Qué hay que cambiar |

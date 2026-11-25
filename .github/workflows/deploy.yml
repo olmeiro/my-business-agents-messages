@@ -1,0 +1,56 @@
+# CI/CD: valida el código y despliega infra/template.yaml en AWS.
+#
+# Por ahora NO se dispara solo: únicamente a mano, desde la pestaña Actions → "CI/CD" → "Run workflow".
+# Para activarlo en cada push a main, descomenta el bloque `push` de abajo.
+#
+# Configuración necesaria en GitHub (Settings → Secrets and variables → Actions):
+#   - Secret   AWS_ROLE_ARN  rol de IAM que GitHub asume por OIDC (sin access keys guardadas)
+#   - Variable AWS_REGION    por ejemplo us-east-1
+# El secreto con la API key del modelo debe existir antes en Secrets Manager (ver infra/template.yaml).
+
+name: CI/CD
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # la misma versión que el runtime de la Lambda
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
+      - name: Validar template de AWS
+        run: pip install cfn-lint && cfn-lint infra/template.yaml
+
+  deploy:
+    needs: ci # solo despliega si todo lo anterior pasó
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # necesario para OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - run: sam build --template-file infra/template.yaml
+      - run: >
+          sam deploy
+          --stack-name weather-agent
+          --resolve-s3
+          --capabilities CAPABILITY_IAM
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset

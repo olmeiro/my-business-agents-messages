@@ -1,0 +1,74 @@
+# Despliegue mínimo del Weather Agent en AWS Lambda (AWS SAM).
+#
+# El servidor (src/server.ts) corre en Lambda SIN cambios gracias a Lambda Web Adapter,
+# una capa oficial de AWS que reenvía cada invocación al servidor HTTP en localhost.
+#
+# Antes de desplegar, crea el secreto con la API key del proveedor (texto plano):
+#   aws secretsmanager create-secret --name agent-col/llm-api-key --secret-string "nvapi-..."
+#
+# Desplegar (desde la raíz del repo):
+#   sam build -t infra/template.yaml
+#   sam deploy --guided
+#
+# La Function URL usa autenticación IAM: las peticiones deben ir firmadas (SigV4),
+# por ejemplo con `awscurl`. No es pública.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Weather Agent (LangGraph + Groq/NVIDIA) en AWS Lambda
+
+Parameters:
+  LlmProvider:
+    Type: String
+    Default: nvidia
+    AllowedValues: [nvidia, groq]
+  ApiKeySecretName:
+    Type: String
+    Default: agent-col/llm-api-key
+    Description: Secreto de Secrets Manager con la API key del proveedor (texto plano)
+  LambdaAdapterLayerVersion:
+    Type: Number
+    Default: 25
+    Description: Versión de la capa Lambda Web Adapter (revisa la última en github.com/awslabs/aws-lambda-web-adapter)
+
+Resources:
+  AgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      # Lambda Web Adapter ejecuta este script, que arranca el servidor HTTP.
+      Handler: infra/run.sh
+      # Node 24 ejecuta TypeScript directamente, igual que en local: no hay paso de compilación.
+      Runtime: nodejs24.x
+      Architectures: [x86_64]
+      MemorySize: 1024
+      # Una pregunta puede hacer 2 llamadas al modelo de hasta 60 s cada una (src/model.ts).
+      Timeout: 150
+      Layers:
+        # 753240598075 es la cuenta pública de AWS que publica la capa, no una cuenta nuestra.
+        - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:${LambdaAdapterLayerVersion}
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          PORT: '8080'
+          AWS_LWA_READINESS_CHECK_PATH: /openapi.json
+          LLM_PROVIDER: !Ref LlmProvider
+          # shortcut: (atajo) el secreto se resuelve al desplegar y queda visible en la configuración
+          # de la Lambda. Lo correcto es leerlo en tiempo de ejecución con el SDK de Secrets Manager.
+          # Se asigna a las dos variables; model.ts solo usa la del proveedor elegido.
+          NVIDIA_API_KEY: !Sub '{{resolve:secretsmanager:${ApiKeySecretName}}}'
+          GROQ_API_KEY: !Sub '{{resolve:secretsmanager:${ApiKeySecretName}}}'
+      FunctionUrlConfig:
+        # Function URL y no API Gateway: API Gateway corta a los 29 s y el modelo puede tardar más.
+        AuthType: AWS_IAM
+
+  AgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AgentFunction}
+      RetentionInDays: 14
+
+Outputs:
+  FunctionUrl:
+    Description: URL del agente (POST /chat, POST /report, GET /docs)
+    Value: !GetAtt AgentFunctionUrl.FunctionUrl
