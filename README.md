@@ -274,3 +274,73 @@ En VS Code, si instalas la extensión de Prettier (el editor te la sugiere al ab
 - **Las llamadas al modelo tienen un timeout de 60 s y como máximo 2 reintentos** ([`src/model.ts`](src/model.ts)). Si el proveedor no responde, la API devuelve un `502` en lugar de quedarse esperando.
 - **Swagger UI se carga desde un CDN** (unpkg), así que `/docs` necesita internet.
 - **El contrato `openapi.json` se mantiene a mano:** si cambias el endpoint, actualízalo también.
+
+## De este ejemplo a la arquitectura *agent-col*
+
+Este repo es un **prototipo local** de una sola pieza de la arquitectura *My Business Agents (agent-col)*: el **procesamiento de mensajes** (la *Lambda API* que recibe los mensajes de Meta WhatsApp). La lógica del agente (grafo, herramienta, prompts, salida estructurada) ya existe aquí. Lo que cambia es la infraestructura que la rodea.
+
+### Qué pieza corresponde a qué
+
+| En la arquitectura | En este repo | Qué hay que cambiar |
+|---|---|---|
+| **Lambda API** (procesamiento de mensajes) | `runAgent()` en [`src/agent.ts`](src/agent.ts) | Nada en la lógica: `runAgent(message, threadId)` no depende de HTTP. Solo se reemplaza [`src/server.ts`](src/server.ts) (`node:http`) por un *handler* de Lambda que lo llame. |
+| **Meta WhatsApp** (mensajes, webhooks) | El prompt [`prompts/whatsapp-agent.md`](prompts/whatsapp-agent.md) ya responde en formato WhatsApp | Falta el webhook: verificar la firma de Meta (`X-Hub-Signature-256`), leer el mensaje entrante y responder vía la Graph API de Meta. Directo con Meta, **sin Twilio**, como pide el diagrama. |
+| **DynamoDB** (`tenantId` en todas las consultas) | `MemorySaver` (memoria en RAM) | **Imprescindible:** en Lambda la RAM no sobrevive entre invocaciones, así que hay que sustituirlo por un checkpointer persistente sobre DynamoDB. Puede ser uno de la comunidad o uno propio que implemente `BaseCheckpointSaver` de LangGraph. El `threadId` debe incluir el tenant, por ejemplo `${tenantId}#${telefono}`, para aislar las conversaciones de cada cliente. |
+| **SQS** (procesamiento asíncrono) | No existe: `/chat` responde de forma síncrona | **Necesario:** el modelo tarda entre 20 y 40 s en responder, API Gateway corta por defecto a los 29 s y Meta espera un `200` rápido o reintenta el envío. Ver el flujo de abajo. |
+| **Secrets Manager** | `NVIDIA_API_KEY` / `GROQ_API_KEY` en `.env` | Las claves se leen de Secrets Manager. |
+| **SSM Parameter Store** (configuración parametrizable) | `LLM_PROVIDER`, `NVIDIA_MODEL`, `NVIDIA_REASONING_EFFORT`, `ASSISTANT_NAME` en `.env` | Pasan a parámetros de SSM, y pueden ser distintos por tenant. |
+| **Parametrizable por tenant** (colores de marca, temas) | Variables mustache `{{assistant_name}}`, `{{today}}` en [`prompts/`](prompts) | Es la misma idea aplicada al prompt: el nombre del asistente, el tono o las instrucciones pueden venir de la configuración de cada tenant (DynamoDB o S3) en lugar del `.env`. |
+| **CloudWatch** (logs, métricas, alarmas) | [`src/log.ts`](src/log.ts): una línea `clave=valor` por evento, con `requestId` | En Lambda, `console.log` ya llega a CloudWatch Logs. Falta añadir `tenantId` al contexto del log (el mismo `AsyncLocalStorage`) y publicar los tokens de `usage` como métricas por tenant, útil para costos y alarmas. |
+| **API Gateway + Cognito** | `HOST=127.0.0.1` (sin autenticación) | Las rutas internas (el *Backend Composer*) van detrás de API Gateway con autorizador de Cognito. El webhook de Meta no usa Cognito: se protege verificando la firma. [`openapi.json`](openapi.json) se puede importar en API Gateway. |
+| **Pipeline CI/CD** (GitHub Actions → OIDC → SAM) | `npm run typecheck`, `npm test`, `npm run format:check` | Son los pasos de validación antes del deploy. El runtime de Lambda no ejecuta `.ts` directamente como Node 26 en local, así que se empaqueta con esbuild (SAM lo soporta). |
+| **Timeouts y reintentos** | `timeout: 60s`, `maxRetries: 2` en [`src/model.ts`](src/model.ts) | El timeout de la Lambda debe ser mayor que el del modelo, y el *visibility timeout* de SQS mayor que el de la Lambda. Los mensajes que fallen varias veces van a una cola de errores (DLQ). |
+
+### El flujo de un mensaje de WhatsApp en la nube
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant M as Meta WhatsApp
+    participant G as API Gateway
+    participant W as Lambda webhook
+    participant Q as SQS
+    participant A as Lambda agente
+    participant D as DynamoDB
+    participant L as Modelo (NVIDIA / Groq)
+    participant O as Open-Meteo
+
+    U->>M: ¿Qué tiempo hace en Cali?
+    M->>G: POST webhook
+    G->>W: evento
+    W->>W: verifica la firma de Meta
+    W->>Q: encola el mensaje
+    W-->>M: 200 OK en milisegundos
+    Note over M,W: Meta recibió el 200 a tiempo, no reintenta
+
+    Q->>A: entrega el mensaje
+    Note over A: Al arrancar lee la API key (Secrets Manager)<br/>y la configuración (SSM)
+    A->>D: carga el historial (threadId = tenantId + teléfono)
+
+    rect rgba(100, 150, 255, 0.12)
+        Note over A,O: runAgent() — lo que ya existe en este repo
+        A->>L: prompt + historial + mensaje
+        L-->>A: pide get_weather(Cali)
+        A->>O: consulta el clima
+        O-->>A: 23 °C, llovizna
+        A->>L: resultado de la herramienta
+        L-->>A: respuesta en formato WhatsApp
+    end
+
+    A->>D: guarda el historial actualizado
+    A->>M: envía la respuesta (Graph API)
+    M-->>U: 🌧️ En Cali hay 23 °C con llovizna...
+```
+
+Separar la recepción (rápida) del procesamiento (lento) con SQS es lo que permite usar un modelo que tarda 30 s sin que Meta reintente el mensaje ni API Gateway corte la petición.
+
+### Fuera del alcance de este ejemplo
+
+- **Agente de voz (ECS Fargate):** las llamadas duran más de 3 minutos y necesitan una conexión abierta todo ese tiempo, por eso van en un contenedor y no en Lambda. Este repo solo maneja texto. El grafo y las herramientas se podrían reutilizar, pero la parte de audio es otro mundo.
+- **Angular MFE (Visual Workflow):** el editor visual de flujos (Inicio → ¿Condición? → Acción → Fin) es, conceptualmente, lo mismo que el grafo de LangGraph de [`src/agent.ts`](src/agent.ts): nodos, una arista condicional y un final. Un flujo diseñado ahí podría traducirse a un `StateGraph`, pero esa traducción no está en este repo.
+- **Multitenancy completo:** Cognito, aislamiento por `tenantId` y auditoría inmutable en CloudWatch. Aquí solo hay un "tenant" implícito.
