@@ -24,9 +24,32 @@ POST /chat ──► server.ts ──► grafo LangGraph (agent.ts)
 ## Requisitos
 
 - **Node.js ≥ 23.6**: ejecuta TypeScript de forma nativa y lee `.env` con `--env-file`.
-- Una API key del proveedor que vayas a usar:
-  - Groq: <https://console.groq.com/keys>
-  - NVIDIA: <https://build.nvidia.com/nvidia/nemotron-3.5-super-vl-120b-a12b> (botón *Get API Key*)
+- Una API key del proveedor que vayas a usar (NVIDIA o Groq). Basta con una; cómo conseguirlas está justo abajo.
+
+### Conseguir las API keys
+
+Solo necesitas la del proveedor que pongas en `LLM_PROVIDER`. El proyecto viene configurado para NVIDIA.
+
+**NVIDIA** (modelo Nemotron):
+
+1. Entra en la página del modelo: <https://build.nvidia.com/nvidia/nemotron-3.5-super-vl-120b-a12b>
+2. En el panel de la derecha, pulsa **Get API Key**.
+3. Escribe tu email y pulsa **Next**. Si ya tienes cuenta de NVIDIA, inicia sesión. Si no, te pide crear una contraseña, y al registrarte quedas dentro del *NVIDIA Developer Program* (es gratis).
+4. Al volver a la página del modelo aparece tu clave: pulsa **Copy Key**.
+5. Pégala en `.env` como `NVIDIA_API_KEY=...`.
+
+No hay una página aparte para gestionar las claves: se crean siempre desde la página de un modelo. Es un servicio de prueba con sus propias condiciones (*NVIDIA API Trial Terms of Service*).
+
+**Groq**:
+
+1. Entra en <https://console.groq.com/keys> e inicia sesión (o crea una cuenta).
+2. Pulsa **Create API Key** y ponle un nombre.
+3. Copia la clave.
+4. Pégala en `.env` como `GROQ_API_KEY=...` y pon `LLM_PROVIDER=groq`.
+
+Si usas Groq desde la cuenta de un equipo, solo los dueños del equipo o quien tenga el rol *developer* pueden crear claves.
+
+> **Guarda la clave en un lugar seguro en cuanto la copies:** puede que no vuelva a mostrarse. Si la pierdes, crea una nueva. Nunca la pegues en el código ni la subas a git: va solo en `.env`, que está en `.gitignore`.
 
 ## Puesta en marcha
 
@@ -278,6 +301,8 @@ En VS Code, si instalas la extensión de Prettier (el editor te la sugiere al ab
 ## De este ejemplo a la arquitectura *agent-col*
 
 Este repo es un **prototipo local** de una sola pieza de la arquitectura *My Business Agents (agent-col)*: el **procesamiento de mensajes** (la *Lambda API* que recibe los mensajes de Meta WhatsApp). La lógica del agente (grafo, herramienta, prompts, salida estructurada) ya existe aquí. Lo que cambia es la infraestructura que la rodea.
+
+El diagrama completo de la arquitectura está en [`docs/agent-col.drawio`](docs/agent-col.drawio). Se edita con [draw.io](https://www.drawio.com/) o con su extensión para VS Code.
 
 ### Qué pieza corresponde a qué
 
