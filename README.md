@@ -79,6 +79,32 @@ npm run dev     # servidor con recarga automática en http://localhost:3000
 npm start       # igual, sin recarga
 ```
 
+## Prompts
+
+Las instrucciones del modelo no están en el código: viven en la carpeta [`prompts/`](prompts) como archivos Markdown.
+
+- [`whatsapp-agent.md`](prompts/whatsapp-agent.md): el agente de `/chat`. Define su rol, cuándo usar la herramienta, el tono, el formato de WhatsApp (`*negrita*`, listas con •, emojis con moderación, sin tablas) y sus límites.
+- [`weather-report.md`](prompts/weather-report.md): las instrucciones del informe de `/report`.
+
+**¿Por qué en archivos aparte?** Se editan como texto, sin tocar TypeScript. Cada cambio queda en git, así que se puede revisar y deshacer. Y quien escribe el prompt no necesita conocer el código.
+
+**Variables.** Los prompts son plantillas en formato *mustache*, parecido a Jinja en Python: `{{variable}}` se reemplaza al usarlos. `whatsapp-agent.md` usa dos:
+
+| Variable             | Valor |
+|----------------------|-------|
+| `{{assistant_name}}` | `ASSISTANT_NAME` del `.env` (por defecto `Nimbo`) |
+| `{{today}}`          | La fecha de hoy, para que el modelo sepa qué día es |
+
+**Cómo funciona** ([`src/prompts.ts`](src/prompts.ts)):
+
+1. `loadChatPrompt()` lee el archivo y crea un `ChatPromptTemplate` de LangChain: primero el prompt de sistema y después la conversación.
+2. Con `.pipe(model)` se conecta al modelo.
+3. Si el archivo usa una variable que el código no envía (por ejemplo, un error de tipeo como `{{fehca}}`), el servidor no arranca. Sin esa comprobación, mustache la dejaría vacía sin avisar.
+
+**Para agregar una variable:** escríbela en el `.md`, añádela a la lista de `loadChatPrompt(...)` y pásale su valor en `invoke(...)`, como en [`src/agent.ts`](src/agent.ts).
+
+> ¿Y Jinja? En Node existe [Nunjucks](https://mozilla.github.io/nunjucks/), que admite `if` y `for` dentro de la plantilla. Aquí no hace falta: mustache ya viene con LangChain, sin dependencias extra, y un prompt con poca lógica es más fácil de leer.
+
 ## Documentación (Swagger)
 
 Con el servidor encendido:
@@ -193,8 +219,12 @@ src/
   log.ts          Logger (una línea por evento) con el id de petición vía AsyncLocalStorage
   agent.ts        Grafo LangGraph: nodo llm + ToolNode y memoria (MemorySaver)
   report.ts       Salida estructurada: esquema zod + withStructuredOutput
+  prompts.ts      Carga los prompts de /prompts como plantillas
   weather.ts      Herramienta get_weather (tool() + esquema zod) y cliente de Open-Meteo
   agent.test.ts   Tests con fetch simulado (no llaman a Groq ni a Open-Meteo)
+prompts/
+  whatsapp-agent.md   Instrucciones del agente de /chat (rol, estilo, formato WhatsApp, límites)
+  weather-report.md   Instrucciones del informe de /report
 openapi.json      Contrato de la API (lo sirve /openapi.json y lo usa Swagger UI)
 ```
 

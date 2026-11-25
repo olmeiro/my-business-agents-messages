@@ -48,6 +48,7 @@ delete process.env.LLM_PROVIDER; // los tests usan el camino de Groq
 process.env.GROQ_API_KEY ??= 'test-key'; // ChatGroq exige una clave al crearse (aunque sea falsa)
 const { runAgent } = await import('./agent.ts');
 const { weatherReport } = await import('./report.ts');
+const { loadChatPrompt } = await import('./prompts.ts');
 
 // Mensajes del usuario que llegaron al modelo en la última llamada.
 const userContents = () => groqBodies.at(-1).messages.filter((m: any) => m.role === 'user').map((m: any) => m.content);
@@ -62,6 +63,18 @@ test('el agente usa get_weather, le pasa el resultado al modelo y suma los token
   assert.equal(toolMsg.role, 'tool');
   assert.equal(toolMsg.tool_call_id, 'c1');
   assert.match(toolMsg.content, /"temperature_2m":21/);
+
+  // El primer mensaje es el prompt de sistema, con las variables ya reemplazadas.
+  const system = groqBodies.at(-1).messages[0];
+  assert.equal(system.role, 'system');
+  assert.match(system.content, /Eres Nimbo/);
+  assert.match(system.content, new RegExp(`Hoy es .*${new Date().getFullYear()}`));
+  assert.doesNotMatch(system.content, /{{/, 'no deben quedar variables sin reemplazar');
+});
+
+test('loadChatPrompt falla si el prompt usa una variable que el código no envía', () => {
+  // whatsapp-agent.md usa {{assistant_name}} y {{today}}; aquí "olvidamos" today.
+  assert.throws(() => loadChatPrompt('whatsapp-agent.md', ['assistant_name']), /today/);
 });
 
 test('el mismo threadId recuerda los mensajes anteriores; otro threadId no', async () => {

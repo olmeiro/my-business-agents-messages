@@ -14,32 +14,43 @@
 //               └──────── [tools]   (ejecuta get_weather y vuelve al modelo)
 // ============================================================================
 
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import { StateGraph, StateSchema, MessagesValue, START, MemorySaver } from '@langchain/langgraph';
 import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
 import { chatModel, sumUsage, type Usage } from './model.ts';
+import { loadChatPrompt } from './prompts.ts';
 import { weatherTool } from './weather.ts';
 import { log, msSince } from './log.ts';
-
-// Instrucciones fijas que el modelo recibe siempre, antes de la conversación.
-const SYSTEM_PROMPT = 'Eres un asistente útil y conciso. Usa la herramienta get_weather cuando pregunten por el clima.';
 
 // Lista de herramientas que el agente puede usar. Para agregar otra, basta con sumarla aquí.
 const tools = [weatherTool];
 
+// Las instrucciones del agente (prompt de sistema) están en prompts/whatsapp-agent.md.
+// Ese archivo usa dos variables: {{assistant_name}} y {{today}}.
+const prompt = loadChatPrompt('whatsapp-agent.md', ['assistant_name', 'today']);
+
 // bindTools le "enseña" al modelo qué herramientas existen (nombre, descripción y parámetros).
 // El modelo NO las ejecuta: solo responde "quiero usar get_weather con city=Bogotá".
-const model = chatModel.bindTools(tools);
+// pipe() conecta dos pasos: primero se rellena el prompt y el resultado va al modelo.
+const promptAndModel = prompt.pipe(chatModel.bindTools(tools));
+
+// El nombre del asistente se puede cambiar en .env sin tocar el prompt.
+const ASSISTANT_NAME = process.env.ASSISTANT_NAME ?? 'Nimbo';
 
 // El estado del grafo: una lista de mensajes (usuario, modelo, herramientas).
 // MessagesValue hace que cada nodo AGREGUE mensajes a la lista en vez de reemplazarla.
 const State = new StateSchema({ messages: MessagesValue });
 
 const graph = new StateGraph(State)
-  // Nodo 1, "llm": le manda al modelo todo el historial y guarda su respuesta.
+  // Nodo 1, "llm": rellena el prompt, le manda al modelo todo el historial y guarda su respuesta.
   .addNode('llm', async (state) => {
     const start = performance.now();
-    const response = await model.invoke([new SystemMessage(SYSTEM_PROMPT), ...state.messages]);
+    const response = await promptAndModel.invoke({
+      assistant_name: ASSISTANT_NAME,
+      // La fecha se calcula en cada llamada: el modelo no sabe qué día es si no se lo decimos.
+      today: new Intl.DateTimeFormat('es', { dateStyle: 'full' }).format(new Date()),
+      messages: state.messages,
+    });
     const toolCalls = response.tool_calls?.map((t) => t.name).join(',') || 'none';
     log('INFO', 'llm', { ms: msSince(start), toolCalls, ...sumUsage([response]) });
     return { messages: [response] };

@@ -7,9 +7,10 @@
 // base de datos, pintarlo en una pantalla, etc.
 // ============================================================================
 
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import * as z from 'zod';
 import { chatModel, sumUsage, type Usage } from './model.ts';
+import { loadChatPrompt } from './prompts.ts';
 import { getWeather } from './weather.ts';
 import { log, msSince } from './log.ts';
 
@@ -37,6 +38,9 @@ const structuredModel = chatModel.withStructuredOutput(WeatherReport, {
   includeRaw: true, // devuelve también la respuesta "cruda", que es donde vienen los tokens
 });
 
+// Las instrucciones están en prompts/weather-report.md (este prompt no usa variables).
+const promptAndModel = loadChatPrompt('weather-report.md', []).pipe(structuredModel);
+
 // Aquí no usamos el grafo a propósito: nosotros mismos consultamos el clima,
 // así que el modelo solo tiene que convertir esos datos en el informe.
 export async function weatherReport(city: string): Promise<{ report: WeatherReport; usage: Usage } | { error: string }> {
@@ -48,10 +52,7 @@ export async function weatherReport(city: string): Promise<{ report: WeatherRepo
 
   // Paso 2: pedirle al modelo el informe en formato JSON.
   start = performance.now();
-  const { parsed, raw } = await structuredModel.invoke([
-    new SystemMessage('Convierte los datos meteorológicos en un informe para una persona que va a salir. Escribe todos los textos en español.'),
-    new HumanMessage(JSON.stringify(weather)),
-  ]);
+  const { parsed, raw } = await promptAndModel.invoke({ messages: [new HumanMessage(JSON.stringify(weather))] });
   const usage = sumUsage([raw]);
   log('INFO', 'llm structured output', { ms: msSince(start), ...usage });
   // `parsed` ya es un objeto validado con la forma de WeatherReport.
