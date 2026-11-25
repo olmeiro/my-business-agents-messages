@@ -221,6 +221,7 @@ src/
   report.ts       Salida estructurada: esquema zod + withStructuredOutput
   prompts.ts      Carga los prompts de /prompts como plantillas
   weather.ts      Herramienta get_weather (tool() + esquema zod) y cliente de Open-Meteo
+tests/
   agent.test.ts   Tests con fetch simulado (no llaman a Groq ni a Open-Meteo)
 prompts/
   whatsapp-agent.md   Instrucciones del agente de /chat (rol, estilo, formato WhatsApp, límites)

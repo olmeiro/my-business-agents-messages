@@ -46,9 +46,9 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: Re
 
 delete process.env.LLM_PROVIDER; // los tests usan el camino de Groq
 process.env.GROQ_API_KEY ??= 'test-key'; // ChatGroq exige una clave al crearse (aunque sea falsa)
-const { runAgent } = await import('./agent.ts');
-const { weatherReport } = await import('./report.ts');
-const { loadChatPrompt } = await import('./prompts.ts');
+const { runAgent } = await import('../src/agent.ts');
+const { weatherReport } = await import('../src/report.ts');
+const { loadChatPrompt } = await import('../src/prompts.ts');
 
 // Mensajes del usuario que llegaron al modelo en la última llamada.
 const userContents = () => groqBodies.at(-1).messages.filter((m: any) => m.role === 'user').map((m: any) => m.content);
