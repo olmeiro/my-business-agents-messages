@@ -242,6 +242,10 @@ openapi.json      Contrato de la API (lo sirve /openapi.json y lo usa Swagger UI
 | `npm start`         | Servidor                                     |
 | `npm test`          | Tests (`node --test`)                        |
 | `npm run typecheck` | Comprobación de tipos con `tsc` (no compila) |
+| `npm run format`    | Da formato al código con Prettier            |
+| `npm run format:check` | Revisa el formato sin cambiar nada (útil en CI) |
+
+En VS Code, si instalas la extensión de Prettier (el editor te la sugiere al abrir el proyecto), el código se formatea solo al guardar.
 
 ## Limitaciones (a propósito, es una referencia)
 
