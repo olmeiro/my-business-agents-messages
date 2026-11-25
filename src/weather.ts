@@ -1,8 +1,20 @@
 import { tool } from '@langchain/core/tools';
 import * as z from 'zod';
+import { log, msSince } from './log.ts';
 
 // Open-Meteo: free, no API key needed.
-export const weatherTool = tool(async ({ city }) => JSON.stringify(await getWeather(city)), {
+export const weatherTool = tool(async ({ city }) => {
+  const start = performance.now();
+  try {
+    const result = await getWeather(city);
+    log(result.error ? 'WARN' : 'INFO', 'tool get_weather', { city, ms: msSince(start), found: !result.error });
+    return JSON.stringify(result);
+  } catch (err) {
+    // ToolNode turns this into a message for the model, so without this log the failure would be invisible.
+    log('WARN', 'tool get_weather failed, model will receive the error', { city, ms: msSince(start), error: err });
+    throw err;
+  }
+}, {
   name: 'get_weather',
   description: 'Obtiene el clima actual de una ciudad',
   schema: z.object({ city: z.string().min(1).describe('Nombre de la ciudad, p. ej. Madrid') }),

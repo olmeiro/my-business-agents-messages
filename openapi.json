@@ -5,7 +5,11 @@
     "version": "1.1.0",
     "description": "Agente conversacional (LangGraph + Groq o NVIDIA, según LLM_PROVIDER) con una herramienta de clima (Open-Meteo). Mantiene memoria por threadId mientras el servidor está encendido y devuelve los tokens consumidos."
   },
-  "servers": [{ "url": "/" }],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
   "paths": {
     "/report": {
       "post": {
@@ -17,10 +21,20 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["city"],
-                "properties": { "city": { "type": "string", "minLength": 1, "maxLength": 100 } }
+                "required": [
+                  "city"
+                ],
+                "properties": {
+                  "city": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                }
               },
-              "example": { "city": "Bogotá" }
+              "example": {
+                "city": "Bogotá"
+              }
             }
           }
         },
@@ -31,15 +45,62 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["report", "usage"],
-                  "properties": { "report": { "$ref": "#/components/schemas/WeatherReport" }, "usage": { "$ref": "#/components/schemas/Usage" } }
+                  "required": [
+                    "report",
+                    "usage"
+                  ],
+                  "properties": {
+                    "report": {
+                      "$ref": "#/components/schemas/WeatherReport"
+                    },
+                    "usage": {
+                      "$ref": "#/components/schemas/Usage"
+                    }
+                  }
                 }
               }
             }
           },
-          "400": { "description": "Falta city o el JSON es inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "404": { "description": "Ciudad no encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "502": { "description": "Fallo al consultar el modelo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "400": {
+            "description": "Falta city o el JSON es inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ciudad no encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "El proveedor del modelo está limitando las peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Fallo al consultar el modelo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -51,10 +112,23 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ChatRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
               "examples": {
-                "nueva": { "summary": "Conversación nueva", "value": { "message": "¿Qué tiempo hace en Bogotá?" } },
-                "continuar": { "summary": "Continuar conversación", "value": { "message": "¿Y comparado con Cartagena?", "threadId": "4939598e-8563-4df3-aa99-514dd9d2d1a1" } }
+                "nueva": {
+                  "summary": "Conversación nueva",
+                  "value": {
+                    "message": "¿Qué tiempo hace en Bogotá?"
+                  }
+                },
+                "continuar": {
+                  "summary": "Continuar conversación",
+                  "value": {
+                    "message": "¿Y comparado con Cartagena?",
+                    "threadId": "4939598e-8563-4df3-aa99-514dd9d2d1a1"
+                  }
+                }
               }
             }
           }
@@ -62,15 +136,43 @@
         "responses": {
           "200": {
             "description": "Respuesta del agente",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Body inválido (JSON mal formado, falta message o threadId con formato incorrecto)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "El proveedor del modelo está limitando las peticiones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "502": {
             "description": "Fallo al consultar el modelo (Groq)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -81,47 +183,122 @@
       "WeatherReport": {
         "type": "object",
         "description": "Salida estructurada: el modelo está obligado a devolver exactamente esta forma (response_format: json_schema).",
-        "required": ["city", "country", "temperatureC", "condition", "feeling", "umbrellaNeeded", "recommendation"],
+        "required": [
+          "city",
+          "country",
+          "temperatureC",
+          "condition",
+          "feeling",
+          "umbrellaNeeded",
+          "recommendation"
+        ],
         "properties": {
-          "city": { "type": "string", "example": "Bogotá" },
-          "country": { "type": "string", "example": "Colombia" },
-          "temperatureC": { "type": "number", "example": 17.3 },
-          "condition": { "type": "string", "example": "Llovizna ligera" },
-          "feeling": { "type": "string", "enum": ["frío", "fresco", "templado", "caluroso"] },
-          "umbrellaNeeded": { "type": "boolean", "example": true },
-          "recommendation": { "type": "string", "example": "Lleva paraguas y una chaqueta ligera." }
+          "city": {
+            "type": "string",
+            "example": "Bogotá"
+          },
+          "country": {
+            "type": "string",
+            "example": "Colombia"
+          },
+          "temperatureC": {
+            "type": "number",
+            "example": 17.3
+          },
+          "condition": {
+            "type": "string",
+            "example": "Llovizna ligera"
+          },
+          "feeling": {
+            "type": "string",
+            "enum": [
+              "frío",
+              "fresco",
+              "templado",
+              "caluroso"
+            ]
+          },
+          "umbrellaNeeded": {
+            "type": "boolean",
+            "example": true
+          },
+          "recommendation": {
+            "type": "string",
+            "example": "Lleva paraguas y una chaqueta ligera."
+          }
         }
       },
       "ChatRequest": {
         "type": "object",
-        "required": ["message"],
+        "required": [
+          "message"
+        ],
         "properties": {
-          "message": { "type": "string", "minLength": 1, "description": "Mensaje del usuario" },
-          "threadId": { "type": "string", "pattern": "^[\\w-]{1,100}$", "description": "Id de conversación devuelto en una respuesta anterior" }
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Mensaje del usuario"
+          },
+          "threadId": {
+            "type": "string",
+            "pattern": "^[\\w-]{1,100}$",
+            "description": "Id de conversación devuelto en una respuesta anterior"
+          }
         }
       },
       "ChatResponse": {
         "type": "object",
-        "required": ["reply", "threadId", "usage"],
+        "required": [
+          "reply",
+          "threadId",
+          "usage"
+        ],
         "properties": {
-          "reply": { "type": "string", "description": "Respuesta del agente (puede venir en Markdown)" },
-          "threadId": { "type": "string", "description": "Id para continuar la conversación" },
-          "usage": { "$ref": "#/components/schemas/Usage" }
+          "reply": {
+            "type": "string",
+            "description": "Respuesta del agente (puede venir en Markdown)"
+          },
+          "threadId": {
+            "type": "string",
+            "description": "Id para continuar la conversación"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
         }
       },
       "Usage": {
         "type": "object",
         "description": "Tokens consumidos en este turno, sumando todas las llamadas al modelo (si usó la herramienta son 2). La entrada de cada llamada incluye el historial de la conversación.",
-        "required": ["inputTokens", "outputTokens"],
+        "required": [
+          "inputTokens",
+          "outputTokens"
+        ],
         "properties": {
-          "inputTokens": { "type": "integer", "example": 898 },
-          "outputTokens": { "type": "integer", "example": 422 }
+          "inputTokens": {
+            "type": "integer",
+            "example": 898
+          },
+          "outputTokens": {
+            "type": "integer",
+            "example": 422
+          }
         }
       },
       "Error": {
         "type": "object",
-        "required": ["error"],
-        "properties": { "error": { "type": "string" } }
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Id de la petición (solo en errores 5xx/429): búscalo en los logs del servidor para ver el detalle"
+          }
+        }
       }
     }
   }

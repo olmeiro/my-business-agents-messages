@@ -3,6 +3,7 @@ import { StateGraph, StateSchema, MessagesValue, START, MemorySaver } from '@lan
 import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
 import { chatModel, sumUsage, type Usage } from './model.ts';
 import { weatherTool } from './weather.ts';
+import { log, msSince } from './log.ts';
 
 const SYSTEM_PROMPT = 'Eres un asistente útil y conciso. Usa la herramienta get_weather cuando pregunten por el clima.';
 const tools = [weatherTool];
@@ -12,9 +13,13 @@ const State = new StateSchema({ messages: MessagesValue });
 
 // llm -> (tool call?) -> tools -> llm ... -> END
 const graph = new StateGraph(State)
-  .addNode('llm', async (state) => ({
-    messages: [await model.invoke([new SystemMessage(SYSTEM_PROMPT), ...state.messages])],
-  }))
+  .addNode('llm', async (state) => {
+    const start = performance.now();
+    const response = await model.invoke([new SystemMessage(SYSTEM_PROMPT), ...state.messages]);
+    const toolCalls = response.tool_calls?.map((t) => t.name).join(',') || 'none';
+    log('INFO', 'llm', { ms: msSince(start), toolCalls, ...sumUsage([response]) });
+    return { messages: [response] };
+  })
   .addNode('tools', new ToolNode(tools)) // tool errors go back to the model as messages, not exceptions
   .addEdge(START, 'llm')
   .addConditionalEdges('llm', toolsCondition, ['tools', '__end__'])
@@ -32,5 +37,8 @@ export async function runAgent(userMessage: string, threadId: string): Promise<{
 
   // Only this turn's model calls (after the last user message); each call's input already includes the history.
   const turn = result.messages.slice(result.messages.findLastIndex((m) => HumanMessage.isInstance(m)) + 1);
-  return { reply: result.messages.at(-1)?.text ?? '', usage: sumUsage(turn) };
+  const usage = sumUsage(turn);
+  // historyMessages grows with each turn of the same thread: that's the memory at work.
+  log('INFO', 'agent done', { threadId, historyMessages: result.messages.length, ...usage });
+  return { reply: result.messages.at(-1)?.text ?? '', usage };
 }

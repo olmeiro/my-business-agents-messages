@@ -156,12 +156,41 @@ Errores: `400` (falta `city`), `404` (ciudad no encontrada), `502` (fallo del mo
 
 > En PowerShell 5.1, usa `-ContentType 'application/json; charset=utf-8'` para que los acentos (á, ñ) lleguen bien.
 
+## Logs: qué pasa en cada petición
+
+Cada petición recibe un id corto, que aparece en todas sus líneas de log y en el header `X-Request-Id` de la respuesta. Una pregunta por el clima se ve así en la terminal:
+
+```
+INFO  [aca4f8a4] → request method=POST url=/chat
+INFO  [aca4f8a4] llm ms=38885 toolCalls=get_weather inputTokens=361 outputTokens=27
+INFO  [aca4f8a4] tool get_weather city=Bogotá ms=1349 found=true
+INFO  [aca4f8a4] llm ms=684 toolCalls=none inputTokens=531 outputTokens=44
+INFO  [aca4f8a4] agent done threadId=af0c118b-... historyMessages=4 inputTokens=892 outputTokens=71
+INFO  [aca4f8a4] ← response status=200 ms=40961
+```
+
+Se lee de arriba abajo:
+
+1. El modelo pidió la herramienta `get_weather`.
+2. La herramienta consultó Open-Meteo, que tardó 1.3 s.
+3. El modelo redactó la respuesta.
+
+`historyMessages` crece con cada mensaje del mismo `threadId`: es la memoria. Y `ms` muestra dónde se va el tiempo; en este ejemplo, casi todo en la primera llamada al modelo.
+
+**Errores:**
+
+- **Fallo del proveedor del modelo** (por ejemplo, una API key inválida): el log muestra una línea `ERROR` con el status del proveedor, una pista (`hint`) y el stack completo. El cliente solo recibe `{"error": "...", "requestId": "..."}`; con ese `requestId` se buscan los detalles en el log.
+- **Petición mal formada:** aparece como `WARN client error`.
+
+El logger está en [`src/log.ts`](src/log.ts). Usa `AsyncLocalStorage` de Node para que el id de la petición llegue a los logs del agente y de las herramientas sin pasarlo de función en función.
+
 ## Estructura
 
 ```
 src/
   server.ts       Servidor HTTP (node:http): validación de entrada, /chat, /report, /docs, /openapi.json
   model.ts        Selección del modelo (Groq o NVIDIA) y conteo de tokens
+  log.ts          Logger (una línea por evento) con el id de petición vía AsyncLocalStorage
   agent.ts        Grafo LangGraph: nodo llm + ToolNode y memoria (MemorySaver)
   report.ts       Salida estructurada: esquema zod + withStructuredOutput
   weather.ts      Herramienta get_weather (tool() + esquema zod) y cliente de Open-Meteo
