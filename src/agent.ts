@@ -4,7 +4,7 @@
 //               ▲            │ sí
 //               └──────── [tools]
 
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage, trimMessages } from '@langchain/core/messages';
 import { StateGraph, StateSchema, MessagesValue, START, MemorySaver } from '@langchain/langgraph';
 import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
 import { chatModel, sumUsage, type Usage } from './model.ts';
@@ -21,6 +21,17 @@ const promptAndModel = prompt.pipe(chatModel.bindTools(tools));
 
 const ASSISTANT_NAME = process.env.ASSISTANT_NAME ?? 'Nimbo';
 
+// Al modelo solo le llegan los últimos mensajes: cada llamada reenvía el historial,
+// así que sin límite el costo crece con cada mensaje y acaba superando el contexto.
+export const MAX_HISTORY_MESSAGES = 20;
+const trimHistory = trimMessages({
+  maxTokens: MAX_HISTORY_MESSAGES,
+  tokenCounter: (messages) => messages.length, // cuenta mensajes, no tokens
+  strategy: 'last',
+  // Empezar en un mensaje del usuario evita cortar entre una llamada a herramienta y su resultado.
+  startOn: 'human',
+});
+
 // MessagesValue agrega los mensajes nuevos a la lista en vez de reemplazarla.
 const State = new StateSchema({ messages: MessagesValue });
 
@@ -31,7 +42,7 @@ const graph = new StateGraph(State)
       assistant_name: ASSISTANT_NAME,
       // El modelo no sabe qué día es si no se lo decimos.
       today: new Intl.DateTimeFormat('es', { dateStyle: 'full' }).format(new Date()),
-      messages: state.messages,
+      messages: await trimHistory.invoke(state.messages),
     });
     const toolCalls = response.tool_calls?.map((t) => t.name).join(',') || 'none';
     log('INFO', 'llm', { ms: msSince(start), toolCalls, ...sumUsage([response]) });
@@ -42,7 +53,8 @@ const graph = new StateGraph(State)
   .addEdge(START, 'llm')
   .addConditionalEdges('llm', toolsCondition, ['tools', '__end__'])
   .addEdge('tools', 'llm')
-  // shortcut: (atajo) MemorySaver vive en RAM: se pierde al reiniciar y nunca se borra.
+  // shortcut: (atajo) MemorySaver vive en RAM: se pierde al reiniciar y guarda el historial
+  // completo aunque al modelo solo le enviemos los últimos mensajes.
   // Fuera de local, usa un checkpointer persistente (SQLite, Postgres).
   .compile({ checkpointer: new MemorySaver() });
 

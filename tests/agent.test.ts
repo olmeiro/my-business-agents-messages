@@ -70,7 +70,7 @@ mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: Re
 
 delete process.env.LLM_PROVIDER;
 process.env.GROQ_API_KEY ??= 'test-key'; // ChatGroq exige una clave al crearse (aunque sea falsa)
-const { runAgent } = await import('../src/agent.ts');
+const { runAgent, MAX_HISTORY_MESSAGES } = await import('../src/agent.ts');
 const { weatherReport } = await import('../src/report.ts');
 const { loadChatPrompt } = await import('../src/prompts.ts');
 
@@ -114,6 +114,15 @@ test('el mismo threadId recuerda los mensajes anteriores; otro threadId no', asy
 
   await runAgent('¿Cómo me llamo?', 'thread-b');
   assert.deepEqual(userContents(), ['¿Cómo me llamo?']);
+});
+
+test('en una conversación larga, al modelo solo le llegan los últimos mensajes', async () => {
+  for (let i = 1; i <= 15; i++) await runAgent(`mensaje ${i}`, 'thread-largo'); // 30 mensajes guardados
+
+  const sent = groqBodies.at(-1).messages.filter((m: any) => m.role !== 'system');
+  assert.ok(sent.length <= MAX_HISTORY_MESSAGES, `llegaron ${sent.length} mensajes`);
+  assert.equal(sent[0].role, 'user');
+  assert.equal(sent.at(-1).content, 'mensaje 15');
 });
 
 test('weatherReport envía response_format json_schema y devuelve el informe validado', async () => {

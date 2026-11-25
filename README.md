@@ -48,7 +48,7 @@ cp .env.template .env               # PowerShell: Copy-Item .env.template .env
 | `NVIDIA_API_KEY` | Obligatoria si `LLM_PROVIDER=nvidia`                    |
 | `GROQ_API_KEY`   | Obligatoria si `LLM_PROVIDER=groq`                      |
 | `NVIDIA_REASONING_EFFORT` | Razonamiento de Nemotron: `none` (por defecto), `low` o `high` |
-| `NVIDIA_MODEL`, `GROQ_MODEL`, `PORT` | Opcionales. Los valores por defecto están en [`.env.template`](.env.template) |
+| `NVIDIA_MODEL`, `GROQ_MODEL`, `PORT`, `HOST` | Opcionales. Los valores por defecto están en [`.env.template`](.env.template) |
 
 `.env` está en `.gitignore`, así que tus claves no se suben al repo.
 
@@ -250,7 +250,8 @@ En VS Code, si instalas la extensión de Prettier (el editor te la sugiere al ab
 ## Limitaciones (a propósito, es una referencia)
 
 - **La memoria vive en RAM:** se pierde al reiniciar, y `npm run dev` reinicia en cada cambio. Para persistirla, sustituye `MemorySaver` por un checkpointer de SQLite o Postgres.
-- **El historial no se recorta:** una conversación muy larga puede superar el contexto del modelo.
-- **Sin autenticación:** cualquiera que conozca un `threadId` puede leer o continuar esa conversación. Úsala solo en local.
+- **Al modelo solo le llegan los últimos 20 mensajes** (`MAX_HISTORY_MESSAGES` en [`src/agent.ts`](src/agent.ts)), para que el costo no crezca sin límite. Lo más antiguo de una conversación larga se "olvida", aunque siga guardado en memoria.
+- **Sin autenticación:** cualquiera que conozca un `threadId` puede leer o continuar esa conversación. Por eso el servidor solo acepta conexiones de tu propio equipo (`HOST=127.0.0.1`). No lo cambies a `0.0.0.0` sin añadir autenticación antes.
+- **Las llamadas al modelo tienen un timeout de 60 s y como máximo 2 reintentos** ([`src/model.ts`](src/model.ts)). Si el proveedor no responde, la API devuelve un `502` en lugar de quedarse esperando.
 - **Swagger UI se carga desde un CDN** (unpkg), así que `/docs` necesita internet.
 - **El contrato `openapi.json` se mantiene a mano:** si cambias el endpoint, actualízalo también.

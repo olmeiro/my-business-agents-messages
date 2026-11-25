@@ -6,6 +6,9 @@ import { weatherReport } from './report.ts';
 import { currentRequestId, log, msSince, requestContext } from './log.ts';
 
 const PORT = Number(process.env.PORT ?? 3000);
+// Solo este equipo puede conectarse. Con 0.0.0.0 cualquiera en tu red podría usar la API
+// (y tu cuota del proveedor): no tiene autenticación.
+const HOST = process.env.HOST ?? '127.0.0.1';
 const MAX_BODY_BYTES = 10_000;
 const OPENAPI_SPEC = readFileSync(new URL('../openapi.json', import.meta.url), 'utf8');
 // shortcut: (atajo) Swagger UI se carga de un CDN, así que /docs necesita internet.
@@ -37,7 +40,7 @@ createServer((req, res) => {
     }
     log('INFO', '← response', { status: res.statusCode, ms: msSince(start) });
   });
-}).listen(PORT, () => {
+}).listen(PORT, HOST, () => {
   log('INFO', 'server started', {
     chat: `http://localhost:${PORT}/chat`,
     docs: `http://localhost:${PORT}/docs`,

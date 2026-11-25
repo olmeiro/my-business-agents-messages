@@ -4,6 +4,11 @@ import { AIMessage, type BaseMessage } from '@langchain/core/messages';
 
 const REASONING_EFFORTS = ['none', 'low', 'high'];
 
+// Sin esto, LangChain no tiene timeout y reintenta hasta 6 veces: un proveedor colgado
+// dejaría la petición esperando minutos.
+const TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 2;
+
 function createChatModel() {
   if (process.env.LLM_PROVIDER === 'nvidia') {
     if (!process.env.NVIDIA_API_KEY) throw new Error('Falta NVIDIA_API_KEY en .env');
@@ -18,6 +23,8 @@ function createChatModel() {
       configuration: { baseURL: 'https://integrate.api.nvidia.com/v1' },
       temperature: 1, // valor recomendado por NVIDIA para texto
       maxTokens: 2048, // incluye los tokens de razonamiento
+      timeout: TIMEOUT_MS,
+      maxRetries: MAX_RETRIES,
       // modelKwargs envía tal cual los parámetros que LangChain no conoce.
       modelKwargs: { reasoning_effort: reasoningEffort },
     });
@@ -27,6 +34,8 @@ function createChatModel() {
   return new ChatGroq({
     model: process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b',
     temperature: 0,
+    timeout: TIMEOUT_MS,
+    maxRetries: MAX_RETRIES,
   });
 }
 
