@@ -1,1 +1,2 @@
-*.sh text eol=lf
+# Siempre LF (lo que espera Prettier), también al clonar en Windows. Git detecta solo los binarios (png...).
+* text=auto eol=lf
