@@ -155,6 +155,25 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3000/chat -ContentType 'app
   -Body (@{ message = '¿Y comparado con Cartagena?'; threadId = $r.threadId } | ConvertTo-Json)
 ```
 
+### "El agente no recuerda lo que le pregunté"
+
+La memoria funciona por `threadId`. Si no lo envías, cada mensaje empieza una conversación nueva:
+
+| Pregunta | `threadId` | Respuesta |
+|---|---|---|
+| ¿Qué tiempo hace en Cali? | (ninguno, se crea uno) | 🌧️ 23 °C con llovizna… |
+| ¿Cuál fue mi primera pregunta? | el mismo de la respuesta anterior | Tu primera pregunta fue "¿Qué tiempo hace en Cali?" ✅ |
+| ¿Cuál fue mi primera pregunta? | sin `threadId` | Es tu primera vez que me escribes ❌ |
+
+**En Swagger** es fácil olvidarlo, porque el ejemplo por defecto solo trae `message`:
+
+1. Haz la primera pregunta y copia el `threadId` de la respuesta.
+2. En las siguientes peticiones, añádelo al body: `{"message": "...", "threadId": "<el que copiaste>"}`. En el desplegable **Examples** está el ejemplo "Continuar conversación", que ya trae el campo `threadId`.
+
+**Cómo comprobarlo en los logs:** mira `historyMessages` en la línea `agent done`. Si crece (4 → 8 → 10), es la misma conversación. Si siempre vale 2, no está llegando el `threadId`.
+
+**Si reinicias el servidor, la memoria se borra** porque vive en RAM. Ojo: `npm run dev` reinicia el servidor cada vez que guardas un archivo. Para probar conversaciones largas, usa `npm start`, que no se reinicia solo.
+
 ### `POST /report`: salida estructurada (JSON)
 
 Ejemplo de **structured output**: en lugar de texto libre, el modelo está obligado a devolver un JSON con una forma fija. La forma se define con `zod` en [`src/report.ts`](src/report.ts), y `withStructuredOutput(..., { method: 'jsonSchema' })` la envía a la API como `response_format: { type: "json_schema" }`. Además valida la respuesta: si el modelo devolviera algo que no cumple el esquema, la petición falla en vez de llegar mal al cliente.
